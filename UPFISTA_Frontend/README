@@ -1,0 +1,232 @@
+Got it — here are four **developer-level, client-ready** descriptions with **clear APIs, data contracts, flows, and extensibility notes** for: VTON, Avatar, Product Page, and Product Plug-In. You can paste this directly into your repo docs.
+
+---
+
+VTON (Virtual Try-On) – Technical Overview
+The VTON module is responsible for generating a realistic preview of an apparel item on a user representation (avatar or user image). It is implemented as an isolated service/pipeline so the rendering model can be upgraded without impacting search, product, or store integrations.
+
+Primary responsibilities
+
+* Accept a user target (avatar_id or user_image) and a garment source (product_id + garment assets)
+* Normalize inputs (resolution, pose constraints, segmentation requirements)
+* Run inference using the selected try-on model
+* Return a composited try-on output (image/video frame result) along with metadata for UI alignment and caching
+
+Core workflow
+
+1. Input validation and user target resolution
+
+* If avatar_id is provided, fetch avatar parameters and canonical body representation
+* If user_image is provided, perform preprocessing (resize, background normalization, optional segmentation)
+
+2. Product garment resolution
+
+* Fetch garment assets (front view, alpha mask, garment cut/segmentation, category label)
+* Validate category compatibility (tops, outerwear, dresses, etc.)
+
+3. Try-on inference
+
+* Run model inference with user target + garment assets
+* Generate try-on output and confidence/scoring metadata
+
+4. Output packaging and caching
+
+* Store output in object storage/CDN-ready location
+* Cache result keyed by (user_target_hash, product_id, model_version, pose_variant)
+
+Recommended API surface
+POST /vton/try-on
+Request body
+
+* user_target: { avatar_id?: string, user_image_url?: string }
+* product_id: string
+* options: { model_version?: string, pose?: string, quality?: "standard" | "high" }
+
+Response body
+
+* result_image_url: string
+* metadata: { model_version: string, confidence: number, generated_at: string }
+* cache: { key: string, hit: boolean }
+
+Design notes (enterprise-safe)
+
+* Versioned models to ensure reproducibility (model_version is always returned)
+* Output caching prevents repeated inference costs during browsing and comparison
+* The module is compatible with Gift Mode (multi-person try-on) and widget rendering
+
+---
+
+Avatar System – Technical Overview
+The Avatar system standardizes user representation for repeatable try-on and comparison. It supports both generated avatars (parameter-based) and image-backed avatars, and it persists these representations across sessions.
+
+Primary responsibilities
+
+* Create and store an avatar identity with stable proportions and attributes
+* Provide a normalized “try-on ready” representation to VTON
+* Maintain multiple profiles (e.g., self, family members, gift targets)
+
+Data model (suggested)
+Avatar
+
+* id: string
+* owner_user_id: string
+* label: string (e.g., “Me”, “Mom”, “Brother”)
+* relation?: string
+* age?: number
+* type: "generated" | "image_backed"
+* attributes: { height?: number, body_type?: string, skin_tone?: string }
+* assets: { base_image_url?: string, segmentation_url?: string, pose_map_url?: string }
+* created_at, updated_at
+
+Core API surface
+POST /avatars
+
+* Creates a new avatar (generated or image-backed)
+
+GET /avatars
+
+* Lists all avatars for the user (includes Gift Mode members)
+
+GET /avatars/:id
+
+* Returns avatar details plus VTON-ready asset URLs
+
+PUT /avatars/:id
+
+* Updates metadata (label, relation, age) and optionally assets
+
+Role in Gift Mode
+
+* Gift Mode members map to avatar records so the VTON pipeline can treat gifting like first-class try-on targets
+* Enables consistent comparisons across sessions and shared widget views
+
+---
+
+Product Page – Technical Architecture
+The Product Page is implemented as an orchestration layer that composes product truth (store/catalog data) with AI intelligence (embeddings, similarity, personalization) and try-on actions (VTON). It is designed as a decision interface, not a static listing.
+
+Primary responsibilities
+
+* Fetch canonical product data (price, stock, variants, images, sizes)
+* Fetch AI enrichments (style embeddings, similarity cluster, recommended complements)
+* Enable actions: VTON try-on, compare across avatars, add to Gift Mode, share widget
+
+Suggested page data contract
+GET /products/:id
+Response body
+
+* product:
+
+  * id, title, description, brand
+  * images[], category, tags[]
+  * price: { amount, currency, discount? }
+  * variants: [{ sku, size, color, availability }]
+  * store: { store_id, name }
+* ai:
+
+  * embedding_id
+  * similar_products[]
+  * recommended_pairs[] (optional for outfit building)
+  * confidence_scores (optional)
+* actions:
+
+  * vton_supported: boolean
+  * supported_avatar_types: ["generated","image_backed"]
+  * share_widget_enabled: boolean
+
+UX logic (why it feels “smart”)
+
+* If VTON is supported, the page promotes “Try On” as a primary decision step
+* If Gift Mode exists, the page supports “Try on family member” or “Compare on selected people”
+* Recommendations are grounded in embeddings and user intent rather than generic rules
+
+Operational notes
+
+* Product page is resilient: it renders even if AI services are degraded (feature flags / fallbacks)
+* Pricing and stock always come from store truth source, not embeddings or cached AI metadata
+
+---
+
+Product Plug-In System (Store Integration) – Technical Overview
+The Product Plug-In system allows external stores to integrate their catalogs into Techartt while preserving ownership of pricing, inventory, and checkout. Techartt acts as the discovery, matching, and visualization layer.
+
+Integration objectives
+
+* Standardize store products into Techartt’s internal product schema
+* Generate embeddings for each product (search + recommendations)
+* Keep pricing/availability synchronized
+* Enable VTON readiness for supported product types
+* Make products eligible for widgets and Gift Mode flows
+
+Integration modes
+
+1. Push-based (webhook/API)
+
+* Store pushes product updates to Techartt endpoints
+
+2. Pull-based (scheduled sync)
+
+* Techartt periodically fetches a store feed (CSV/JSON/GraphQL/etc.)
+
+Core endpoints (suggested)
+POST /plugins/stores/register
+
+* Registers a store and returns credentials/webhook configuration
+
+POST /plugins/catalog/upsert
+
+* Upserts products (create/update) with variants and assets
+
+POST /plugins/catalog/delete
+
+* Deletes or deactivates products
+
+POST /plugins/catalog/sync-stock
+
+* Stock/availability updates for variants
+
+POST /plugins/catalog/sync-price
+
+* Price updates for products/variants
+
+Embedding pipeline (auto-enrichment)
+
+* After upsert, the system generates or updates vector embeddings per product
+* Embeddings are indexed for image/NLP search and recommendations
+* Embedding generation is versioned so improvements don’t break results
+
+VTON readiness requirements
+
+* Product must include category + required imagery
+* Optional: segmentation/alpha assets improve realism
+* VTON eligibility is computed and stored per product
+
+Data contract (minimal viable product item)
+ProductUpsert
+
+* store_id
+* product_id (store’s identifier)
+* title, description
+* category
+* images[]
+* variants[] (sku, size, color, stock, price)
+* product_url (store checkout/landing)
+
+Security and operational controls
+
+* Store-level API keys with scoped permissions
+* Rate limiting, signature verification for webhook payloads
+* Idempotent upserts to prevent duplicate products
+* Observability hooks (sync logs + error reporting)
+
+---
+
+Widget System – How These Modules Connect
+Widgets are a delivery layer that can render curated sets of products, try-on previews, or gift selections externally. Widgets read from a share token, fetch a normalized “collection payload,” and render with optional VTON previews and Gift Mode context.
+
+Typical widget payload includes
+
+* Selected products
+* Optional avatar context (if allowed)
+* Optional VTON result previews (cached URLs)
+* Store links for purchase and verification
