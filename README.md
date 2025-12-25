@@ -143,14 +143,3 @@ GitHub: [https://github.com/Mastwaar](https://github.com/Mastwaar)
 ## License
 
 This project is licensed under the MIT License. You are free to use, modify, and distribute this software with proper attribution.
-
----
-
-If you want next, I can:
-
-* Add a **Future Roadmap** section
-* Create **enterprise onboarding docs**
-* Write **API contracts**
-* Split Gift Mode and Video Search into **standalone modules**
-
-This version reads as **mature, forward-looking, and investor-safe**.
